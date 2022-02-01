@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -16,10 +17,11 @@ import (
 	"net"
 	"strings"
 	"time"
-
-	"github.com/letsencrypt/pebble/acme"
-	"github.com/letsencrypt/pebble/core"
-	"github.com/letsencrypt/pebble/db"
+	"os/exec"
+	"bytes"
+	"github.com/TUC-Circular-Economy-Department/pebble/acme"
+	"github.com/TUC-Circular-Economy-Department/pebble/core"
+	"github.com/TUC-Circular-Economy-Department/pebble/db"
 )
 
 const (
@@ -27,6 +29,32 @@ const (
 	intermediateCAPrefix  = "Pebble Intermediate CA "
 	defaultValidityPeriod = 157766400
 )
+
+type BitcoinAddressInfo struct {
+	Address string `json:"address"`
+	ScriptPubKey string `json:"scriptPubKey"`
+	Ismine bool `json:"ismine"`
+	Solvable bool `json:"solvable"`
+	Desc string `json:"desc"`
+	Iswatchonly bool `json:"iswatchonly"`
+	Isscript bool `json:"isscript"`
+	Iswitness bool `json:"iswitness"`
+	Witness_version int `json:"witness_version"`
+	Witness_program string `json:"witness_program"`
+	Pubkey string `json:"pubkey"`
+	Ischange bool `json:"ischange"`
+	Timestamp int `json:"timestamp"`
+	Hdkeypath string `json:"hdkeypath"`
+	Hdseedid string `json:"hdseedid"`
+	Hdmasterfingerprint string `json:"hdmasterfingerprint"`
+	Labels[]interface{} `json:"labels"`
+}
+
+type BitcoinMultisig struct {
+	Address string `json:"address"`
+	RedeemScript string `json:"redeemScript"`
+	Descriptor string `json:"Descriptor"`
+}
 
 type CAImpl struct {
 	log              *log.Logger
@@ -251,7 +279,7 @@ func (ca *CAImpl) newChain(intermediateKey crypto.Signer, intermediateSubject pk
 	return c
 }
 
-func (ca *CAImpl) newCertificate(domains []string, ips []net.IP, key crypto.PublicKey, accountID, notBefore, notAfter string) (*core.Certificate, error) {
+func (ca *CAImpl) newCertificate(domains []string, ips []net.IP, key crypto.PublicKey, accountID, notBefore, notAfter string, multisigAddress string, caAddressPubkey string) (*core.Certificate, error) {
 	var cn string
 	if len(domains) > 0 {
 		cn = domains[0]
@@ -309,7 +337,16 @@ func (ca *CAImpl) newCertificate(domains []string, ips []net.IP, key crypto.Publ
 		BasicConstraintsValid: true,
 		IsCA:                  false,
 	}
-
+	template.ExtraExtensions = append(template.ExtraExtensions, pkix.Extension{
+		Id:       asn1.ObjectIdentifier{1,2,3,4},
+		Critical: false,
+		Value:    []byte (multisigAddress),
+	})
+	template.ExtraExtensions = append(template.ExtraExtensions, pkix.Extension{
+		Id:       asn1.ObjectIdentifier{1,2,3,5},
+		Critical: false,
+		Value:    []byte (caAddressPubkey),
+	})
 	if ca.ocspResponderURL != "" {
 		template.OCSPServer = []string{ca.ocspResponderURL}
 	}
@@ -406,7 +443,60 @@ func (ca *CAImpl) CompleteOrder(order *core.Order) {
 
 	// issue a certificate for the csr
 	csr := order.ParsedCSR
-	cert, err := ca.newCertificate(csr.DNSNames, csr.IPAddresses, csr.PublicKey, order.AccountID, order.NotBefore, order.NotAfter)
+
+
+	co_bitcoin_pubkey := ""
+
+	for _, name := range csr.Subject.Names{
+		if name.Type.String() == "1.2.3.4" {
+			ca.log.Printf("%T %T", co_bitcoin_pubkey, name.Value)
+			co_bitcoin_pubkey = fmt.Sprintf("%s", name.Value)
+		}
+	}
+
+	ca.log.Printf("CO Bitcoin Pubkey: %s, %T", co_bitcoin_pubkey, co_bitcoin_pubkey)
+	if co_bitcoin_pubkey == "" {
+		
+		ca.log.Printf("Error: Could not retrieve CO's Bitcoin Public Key from CSR")
+		return
+	}
+
+	new_address_bytes, err := exec.Command("bitcoin-cli", "-regtest", "-rpcwallet=ca0", "getnewaddress").CombinedOutput()
+	new_address := strings.Join(strings.Fields(string(new_address_bytes)), "")
+
+
+	ca.log.Printf("New Address: %s", new_address)
+
+	new_address_info_json, err := exec.Command("bitcoin-cli", "-regtest", "-rpcwallet=ca0", "getaddressinfo", new_address).CombinedOutput()
+
+	var new_address_info BitcoinAddressInfo
+
+	json.Unmarshal([]byte(strings.Join(strings.Fields(string(new_address_info_json)), "")), &new_address_info)
+
+	ca.log.Printf("Generated new bitcoin address. pubkey: %s", new_address_info.Pubkey)
+
+	co_pubkey_bytes, _ := hex.DecodeString(co_bitcoin_pubkey)
+
+	ca_pubkey_bytes, _ := hex.DecodeString(new_address_info.Pubkey)
+
+	pubkey1, pubkey2 := co_bitcoin_pubkey, new_address_info.Pubkey
+
+	if bytes.Compare(co_pubkey_bytes, ca_pubkey_bytes) == -1 {
+		pubkey2, pubkey1 = co_bitcoin_pubkey, new_address_info.Pubkey
+	}
+
+	ca.log.Printf("pubkey1: %s, > pubkey2: %s", pubkey1, pubkey2)
+
+	cert_multisig_json, err := exec.Command("bitcoin-cli", "-regtest", "-rpcwallet=ca0", "addmultisigaddress", "1", fmt.Sprintf("[\"%s\", \"%s\"]", pubkey1, pubkey2), "legacy").CombinedOutput()
+
+	var cert_multisig BitcoinMultisig
+
+	json.Unmarshal([]byte(strings.Join(strings.Fields(string(cert_multisig_json)), "")), &cert_multisig)
+
+	ca.log.Printf("Certificate Multisig address: %s", cert_multisig.Address)
+	ca.log.Printf("Redeem Script: %s", cert_multisig.RedeemScript)
+
+	cert, err := ca.newCertificate(csr.DNSNames, csr.IPAddresses, csr.PublicKey, order.AccountID, order.NotBefore, order.NotAfter, cert_multisig.Address, new_address_info.Pubkey)
 	if err != nil {
 		ca.log.Printf("Error: unable to issue order: %s", err.Error())
 		return

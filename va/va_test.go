@@ -6,9 +6,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/letsencrypt/pebble/acme"
-	"github.com/letsencrypt/pebble/core"
-	"github.com/letsencrypt/pebble/db"
+	"github.com/TUC-Circular-Economy-Department/pebble/acme"
+	"github.com/TUC-Circular-Economy-Department/pebble/core"
+	"github.com/TUC-Circular-Economy-Department/pebble/db"
 )
 
 func TestAuthzRace(t *testing.T) {

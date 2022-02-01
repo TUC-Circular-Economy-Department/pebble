@@ -28,11 +28,11 @@ import (
 
 	"gopkg.in/square/go-jose.v2"
 
-	"github.com/letsencrypt/pebble/acme"
-	"github.com/letsencrypt/pebble/ca"
-	"github.com/letsencrypt/pebble/core"
-	"github.com/letsencrypt/pebble/db"
-	"github.com/letsencrypt/pebble/va"
+	"github.com/TUC-Circular-Economy-Department/pebble/acme"
+	"github.com/TUC-Circular-Economy-Department/pebble/ca"
+	"github.com/TUC-Circular-Economy-Department/pebble/core"
+	"github.com/TUC-Circular-Economy-Department/pebble/db"
+	"github.com/TUC-Circular-Economy-Department/pebble/va"
 )
 
 const (
@@ -1909,6 +1909,8 @@ func (wfe *WebFrontEndImpl) FinalizeOrder(
 	csrIPs := uniqueIPs(parsedCSR.IPAddresses)
 
 	// Check that the CSR has the same number of names as the initial order contained
+	wfe.log.Printf("csrDNSs : %s, \n orderDNSs: %s", csrDNSs, orderDNSs)
+
 	if len(csrDNSs) != len(orderDNSs) {
 		wfe.sendError(acme.UnauthorizedProblem(
 			"Order includes different number of DNSnames identifiers than CSR specifies"), response)
