@@ -461,13 +461,13 @@ func (ca *CAImpl) CompleteOrder(order *core.Order) {
 		return
 	}
 
-	new_address_bytes, err := exec.Command("bitcoin-cli", "-regtest", "-rpcwallet=ca0", "getnewaddress").CombinedOutput()
+	new_address_bytes, err := exec.Command("bitcoin-cli", "-testnet", "-rpcwallet=ca0", "getnewaddress").CombinedOutput()
 	new_address := strings.Join(strings.Fields(string(new_address_bytes)), "")
 
 
 	ca.log.Printf("New Address: %s", new_address)
 
-	new_address_info_json, err := exec.Command("bitcoin-cli", "-regtest", "-rpcwallet=ca0", "getaddressinfo", new_address).CombinedOutput()
+	new_address_info_json, err := exec.Command("bitcoin-cli", "-testnet", "-rpcwallet=ca0", "getaddressinfo", new_address).CombinedOutput()
 
 	var new_address_info BitcoinAddressInfo
 
@@ -487,7 +487,7 @@ func (ca *CAImpl) CompleteOrder(order *core.Order) {
 
 	ca.log.Printf("pubkey1: %s, > pubkey2: %s", pubkey1, pubkey2)
 
-	cert_multisig_json, err := exec.Command("bitcoin-cli", "-regtest", "-rpcwallet=ca0", "addmultisigaddress", "1", fmt.Sprintf("[\"%s\", \"%s\"]", pubkey1, pubkey2), "legacy").CombinedOutput()
+	cert_multisig_json, err := exec.Command("bitcoin-cli", "-testnet", "-rpcwallet=ca0", "addmultisigaddress", "1", fmt.Sprintf("[\"%s\", \"%s\"]", pubkey1, pubkey2), "legacy").CombinedOutput()
 
 	var cert_multisig BitcoinMultisig
 
